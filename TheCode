@@ -1,0 +1,213 @@
+"""
+By Hatem Yazidi 
+hatem.yazidi.at.gmail.com
+
+Avis de non-responsabilité: 
+
+Les informations, données et contenus présentés dans ce document sont fournis à titre informatif uniquement. 
+Bien que tous les efforts aient été déployés pour assurer leur exactitude et leur fiabilité, aucune garantie expresse ou implicite n’est donnée quant à leur exhaustivité ou leur actualité. 
+L’auteur ne pourra en aucun cas être tenu responsable de toute perte, dommage ou conséquence, directe ou indirecte, résultant de l’utilisation, de l’interprétation ou de la diffusion de ces informations.
+L’utilisateur est seul responsable de la vérification et de l’usage qu’il fait des données.
+"""
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+# from sklearn.metrics import roc_auc_score
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext
+
+class RFApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("🎯 Prédicteur de Probabilités Random Forest - Copyright 2025, Hatem Yazidi")
+        self.root.configure(bg="#2c3e50")  # Fond bleu-gris foncé
+
+        # Cadre supérieur pour les boutons
+        btn_frame = tk.Frame(root, bg="#34495e", pady=10, padx=10)
+        btn_frame.pack(fill='x')
+
+        btn_style = {
+            'font': ('Segoe UI', 11, 'bold'),
+            'bg': '#1abc9c',
+            'fg': 'white',
+            'activebackground': '#16a085',
+            'activeforeground': 'white',
+            'bd': 0,
+            'relief': 'flat',
+            'cursor': 'hand2',
+            'width': 30,
+            'pady': 6
+        }
+
+        self.load_hist_btn = tk.Button(btn_frame, text="📂 Charger données historiques", command=self.load_historical, **btn_style)
+        self.load_hist_btn.grid(row=0, column=0, padx=8)
+
+        self.train_btn = tk.Button(btn_frame, text="⚙️ Entraîner le modèle", command=self.train_model, state='disabled', **btn_style)
+        self.train_btn.grid(row=0, column=1, padx=8)
+
+        self.load_new_btn = tk.Button(
+        btn_frame,
+        text="📊 Charger nouvelles données\n& Prédire",
+        command=self.load_and_predict,
+        state='disabled',
+        **btn_style
+    )
+        self.load_new_btn.grid(row=0, column=2, padx=8)
+
+        self.save_btn = tk.Button(btn_frame, text="💾 Enregistrer prédictions", command=self.save_predictions, state='disabled', **btn_style)
+        self.save_btn.grid(row=0, column=3, padx=8)
+
+        self.exit_btn = tk.Button(btn_frame, text="❌ Quitter", command=self.root.quit, bg='#e74c3c', fg='white',
+                                  activebackground='#c0392b', activeforeground='white',
+                                  font=('Segoe UI', 11, 'bold'), bd=0, relief='flat', cursor='hand2', width=10, pady=6)
+        self.exit_btn.grid(row=0, column=4, padx=8)
+
+        # Label pour messages d'état
+        self.status_label = tk.Label(root, text="Veuillez charger un fichier Excel de données historiques pour commencer.",
+                                     bg="#2c3e50", fg="white", font=('Segoe UI', 12, 'italic'))
+        self.status_label.pack(pady=(10, 0))
+
+        # Cadre pour la zone de texte des résultats
+        results_frame = tk.Frame(root, bg="#34495e", padx=10, pady=10)
+        results_frame.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # Zone de texte pour résultats
+        self.results_text = scrolledtext.ScrolledText(results_frame, wrap=tk.WORD, font=('Consolas', 11),
+                                                    bg="#ecf0f1", fg="#2c3e50", state='normal')
+        self.results_text.pack(fill='both', expand=True)
+
+        # Instructions initiales dans la zone de texte
+        instructions = (
+            "📌 Instructions d'utilisation :\n"
+            " ====== Salut, Jean-Denis, Etienne et Jonathan ========\n"
+            "\n"
+            "1️⃣ Cliquez sur « 📂 Charger données historiques » et sélectionnez un fichier Excel contenant les colonnes Var1 à Var10 et Target.\n"
+            "2️⃣ Cliquez sur « ⚙️ Entraîner le modèle » pour construire l’algorithme.\n"
+            "3️⃣ Cliquez sur « 📊 Charger nouvelles données & Prédire » pour prédire les probabilités.\n"
+            "4️⃣ Les résultats s’afficheront ici avec la date et la probabilité (%) que Target dépasse le seuil médian.\n"
+            "5️⃣ Cliquez sur « 💾 Enregistrer prédictions » pour sauvegarder les résultats au format Excel.\n\n"
+            "ℹ️ Astuce : Utilisez des fichiers Excel bien formatés pour éviter les erreurs."
+        )
+
+        self.results_text.insert(tk.END, instructions)
+        self.results_text.config(state='disabled')  # on verrouille la zone
+
+        # self.results_text = scrolledtext.ScrolledText(results_frame, wrap=tk.WORD, font=('Consolas', 11),
+                                                    #   bg="#ecf0f1", fg="#2c3e50", state='disabled')
+        # self.results_text.pack(fill='both', expand=True)
+
+        # Variables pour les données et le modèle
+        self.df_hist = None
+        self.model = None
+        self.seuil = None
+        self.df_new = None
+
+    def update_status(self, msg):
+        self.status_label.config(text=msg)
+
+    def load_historical(self):
+        file_path = filedialog.askopenfilename(title="Sélectionner le fichier Excel historique",
+                                               filetypes=[("Fichiers Excel", "*.xlsx;*.xls")])
+        if not file_path:
+            return
+        try:
+            self.df_hist = pd.read_excel(file_path)
+            required_cols = ['Var1','Var2','Var3','Var4','Var5','Var6','Var7','Var8','Var9','Var10','Target']
+            if not all(col in self.df_hist.columns for col in required_cols):
+                messagebox.showerror("Erreur", f"Le fichier doit contenir les colonnes : {', '.join(required_cols)}")
+                self.df_hist = None
+                self.update_status("Échec du chargement des données historiques.")
+                return
+            self.update_status(f"Données historiques chargées avec {len(self.df_hist)} lignes.")
+            self.train_btn.config(state='normal')
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de charger le fichier :\n{e}")
+            self.update_status("Échec du chargement des données historiques.")
+
+    def train_model(self):
+        if self.df_hist is None:
+            messagebox.showerror("Erreur", "Veuillez d'abord charger des données historiques.")
+            return
+
+        self.seuil = self.df_hist['Target'].median()
+        self.df_hist['Target_bin'] = (self.df_hist['Target'] > self.seuil).astype(int)
+
+        features = ['Var1','Var2','Var3','Var4','Var5','Var6','Var7','Var8','Var9','Var10']
+        X = self.df_hist[features]
+        y = self.df_hist['Target_bin']
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.model.fit(X_train, y_train)
+
+        y_proba = self.model.predict_proba(X_test)[:,1]
+        # auc = roc_auc_score(y_test, y_proba)
+
+        # messagebox.showinfo("Entraînement terminé", f"Modèle entraîné.\nROC AUC sur jeu de test : {auc:.3f}")
+        # self.update_status(f"Modèle entraîné. ROC AUC : {auc:.3f}")
+
+        self.load_new_btn.config(state='normal')
+
+    def load_and_predict(self):
+        if self.model is None:
+            messagebox.showerror("Erreur", "Veuillez d'abord entraîner le modèle.")
+            return
+
+        file_path = filedialog.askopenfilename(title="Sélectionner le nouveau fichier Excel",
+                                               filetypes=[("Fichiers Excel", "*.xlsx;*.xls")])
+        if not file_path:
+            return
+
+        try:
+            self.df_new = pd.read_excel(file_path)
+            features = ['Var1','Var2','Var3','Var4','Var5','Var6','Var7','Var8','Var9','Var10']
+            if not all(col in self.df_new.columns for col in features):
+                messagebox.showerror("Erreur", f"Le fichier doit contenir les colonnes : {', '.join(features)}")
+                self.df_new = None
+                self.update_status("Échec du chargement des nouvelles données.")
+                return
+
+            probs = self.model.predict_proba(self.df_new[features])[:,1]
+            self.df_new['Probabilité_Target_sup_Seuil'] = probs
+
+            self.display_results_text()
+
+            self.save_btn.config(state='normal')
+            self.update_status(f"Prédictions terminées pour {len(self.df_new)} lignes.")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de charger ou prédire :\n{e}")
+            self.update_status("Échec des prédictions.")
+
+    def display_results_text(self):
+        self.results_text.config(state='normal')
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.insert(tk.END, f"{'Index':<8}{'Date':<20}{'Probabilité (%)':>15}\n")
+        self.results_text.insert(tk.END, "-"*45 + "\n")
+        for idx, (date, prob) in enumerate(zip(self.df_new['Date'], self.df_new['Probabilité_Target_sup_Seuil'])):
+            date_str = str(date)[:19]
+            prob_pct = prob * 100
+            self.results_text.insert(tk.END, f"{idx:<8}{date_str:<20}{prob_pct:>14.2f}%\n")
+        self.results_text.config(state='disabled')
+
+    def save_predictions(self):
+        if self.df_new is None or 'Probabilité_Target_sup_Seuil' not in self.df_new.columns:
+            messagebox.showerror("Erreur", "Aucune prédiction à enregistrer.")
+            return
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx",
+                                                 filetypes=[("Fichiers Excel", "*.xlsx;*.xls")],
+                                                 title="Enregistrer les prédictions sous...")
+        if not save_path:
+            return
+        try:
+            self.df_new.to_excel(save_path, index=False)
+            messagebox.showinfo("Enregistré", f"Prédictions enregistrées dans :\n{save_path}")
+            self.update_status(f"Prédictions enregistrées dans {save_path}")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible d'enregistrer le fichier :\n{e}")
+            self.update_status("Échec de l'enregistrement.")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.geometry("1500x650")
+    app = RFApp(root)
+    root.mainloop()
